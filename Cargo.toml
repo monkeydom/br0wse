@@ -14,3 +14,4 @@ repository = "https://github.com/monkeydom/br0wse"
 [dependencies]
 # while experimental, pin to my own fork
 gpui = { git = "https://github.com/monkeydom/zed", rev = "9ec0927" }
+serde = "*"
