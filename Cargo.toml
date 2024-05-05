@@ -1,0 +1,16 @@
+[package]
+name = "br0wse"
+description = "A zero conf browse gui with gpui"
+version = "0.1.0"
+edition = "2021"
+authors = ["Dominik @monkeydom Wagner <wagnr@icloud.com>"]
+readme = "README.md"
+homepage = "https://github.com/monkeydom/br0wse"
+repository = "https://github.com/monkeydom/br0wse"
+
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+# while experimental, pin to my own fork
+gpui = { git = "https://github.com/monkeydom/zed", rev = "9ec0927" }
