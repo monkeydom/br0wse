@@ -21,7 +21,7 @@ struct HelloWorld {
 }
 
 impl Render for HelloWorld {
-    fn render(&mut self, _cx: &mut ViewContext<Self>) -> impl IntoElement {
+    fn render(&mut self, cx: &mut ViewContext<Self>) -> impl IntoElement {
         div()
             .flex()
             .bg(rgb(0x202020))
@@ -31,17 +31,34 @@ impl Render for HelloWorld {
             .text_xl()
             .text_color(rgb(0xffffff))
             .child(format!("Hello, {}!", &self.text))
+            .child(
+                div()
+                    .bg(rgb(0x002200))
+                    .size_full()
+                    .relative()
+                    .child(uniform_list(cx.view().clone(), "entries", 8, {
+                        |_this, range, _cx| {
+                            let mut items = Vec::new();
+                            for idx in range {
+                                items.push(div().child(format!("line {idx}")))
+                            }
+                            items
+                        }
+                    })),
+            )
     }
 }
 
 fn basic_setup(cx: &mut AppContext) {
-    // Register the `quit` function so it can be referenced by the `MenuItem::action` in the menu bar
     cx.on_action(quit);
-    cx.bind_keys([KeyBinding::new("cmd-q", Quit, None)]);
+    cx.bind_keys([
+        KeyBinding::new("cmd-m", Minimize, None),
+        KeyBinding::new("cmd-w", CloseActiveItem, None),
+        KeyBinding::new("cmd-q", Quit, None),
+        KeyBinding::new("cmd-n", NewWindow, None),
+    ]);
     cx.on_action(new_window);
-    cx.bind_keys([KeyBinding::new("cmd-n", NewWindow, None)]);
     cx.on_action(close_active_item);
-    cx.bind_keys([KeyBinding::new("cmd-w", CloseActiveItem, None)]);
     cx.on_action(about);
     cx.on_action(|action: &OpenBrowser, cx| cx.open_url(&action.url));
     cx.on_action(|_: &Minimize, cx| {
@@ -156,14 +173,46 @@ fn new_window(_: &NewWindow, cx: &mut AppContext) {
     );
 }
 
+struct AboutView {
+    text: SharedString,
+}
+
+impl Render for AboutView {
+    fn render(&mut self, _cx: &mut ViewContext<Self>) -> impl IntoElement {
+        div()
+            .flex()
+            .bg(rgba(0x12345678))
+            .size_full()
+            .justify_center()
+            .items_center()
+            .text_xl()
+            .text_color(rgb(0xffffff))
+            .child(format!("{}", &self.text))
+    }
+}
 fn about(_: &About, cx: &mut AppContext) {
     let version = env!("CARGO_PKG_VERSION");
     let message = format!("{APP_NAME} {version}");
 
-    cx.open_window(Default::default(), |cx| {
-        cx.set_window_title(&message);
-        cx.new_view(|_cx| EmptyView {})
-    });
+    cx.open_window(
+        WindowOptions {
+            bounds: Some(Bounds::new(
+                Point::new(10.into(), 10.into()),
+                Size {
+                    width: 300.into(),
+                    height: 40.into(),
+                },
+            )),
+            window_background: WindowBackgroundAppearance::Blurred,
+            ..Default::default()
+        },
+        |cx| {
+            cx.set_window_title(&message);
+            cx.new_view(|_cx| AboutView {
+                text: message.clone().into(),
+            })
+        },
+    );
 }
 
 fn close_active_item(_: &CloseActiveItem, cx: &mut AppContext) {
