@@ -1,7 +1,26 @@
+use std::thread;
+use std::time::Duration;
+
 use gpui::*;
 use serde::Deserialize;
 
 const APP_NAME: &str = "Br0wse";
+
+struct Services {
+    services: Vec<String>,
+}
+
+impl Services {
+    pub fn new() -> Self {
+        Self {
+            services: vec!["one".into(), "two".into()],
+        }
+    }
+
+    pub fn add(&mut self, service: &str) {
+        self.services.push(service.into());
+    }
+}
 
 #[derive(Clone, PartialEq, Deserialize)]
 pub struct OpenBrowser {
@@ -17,16 +36,20 @@ pub(crate) mod editor {
 }
 
 struct HelloWorld {
+    services: Model<Services>,
     text: SharedString,
 }
 
 impl Render for HelloWorld {
     fn render(&mut self, cx: &mut ViewContext<Self>) -> impl IntoElement {
+        let model = &self.services.read(cx).services;
+        let services = self.services.clone();
         div()
             .flex()
+            .flex_col()
             .bg(rgb(0x202020))
             .size_full()
-            .justify_center()
+            .min_w_64()
             .items_center()
             .text_xl()
             .text_color(rgb(0xffffff))
@@ -34,17 +57,27 @@ impl Render for HelloWorld {
             .child(
                 div()
                     .bg(rgb(0x002200))
-                    .size_full()
+                    .h_full()
+                    .min_w_20()
                     .relative()
-                    .child(uniform_list(cx.view().clone(), "entries", 8, {
-                        |_this, range, _cx| {
-                            let mut items = Vec::new();
-                            for idx in range {
-                                items.push(div().child(format!("line {idx}")))
-                            }
-                            items
-                        }
-                    })),
+                    .child(
+                        list(ListState::new(
+                            model.len(),
+                            ListAlignment::Top,
+                            Pixels(40.0),
+                            move |i, cx| {
+                                div()
+                                    .w_full()
+                                    .border_1()
+                                    .border_color(rgb(0x123456))
+                                    .child(format!("Line {}: {}", i, services.read(cx).services[i]))
+                                    .px_2()
+                                    .py_1()
+                                    .into_any()
+                            },
+                        ))
+                        .size_full(),
+                    ),
             )
     }
 }
@@ -137,11 +170,51 @@ fn basic_setup(cx: &mut AppContext) {
 }
 
 fn main() {
+    env_logger::init();
+
     App::new().run(|cx: &mut AppContext| {
         basic_setup(cx);
 
         cx.activate(true);
         cx.dispatch_action(&NewWindow);
+
+        // let _handle = thread::Builder::new()
+        //     .name("zeroconf-browsing".into())
+        //     .spawn(move || {
+        //         extern crate log;
+        //         use std::any::Any;
+        //         use std::sync::Arc;
+        //         use zeroconf::{prelude::*, MdnsBrowser, ServiceDiscovery, ServiceType};
+
+        //         fn on_service_discovered(
+        //             result: zeroconf::Result<ServiceDiscovery>,
+        //             _context: Option<Arc<dyn Any>>,
+        //         ) {
+        //             println!(
+        //                 "Found some: {:?}",
+        //                 result.expect("Discovery failed instead")
+        //             )
+        //         }
+
+        //         //                    let services_type = "_services._dns-sd._udp.";
+        //         let service_type =
+        //             ServiceType::with_sub_types("dns-sd", "udp", ["services"].into()).unwrap();
+        //         // let service_type = ServiceType::new("services.dns-sd", "udp").unwrap();
+        //         // let service_type = ServiceType::new("ssh", "tcp").unwrap();
+        //         //                let service_type = ServiceType::services_type();
+
+        //         let mut browser = MdnsBrowser::new(service_type.clone());
+        //         browser.set_service_discovered_callback(Box::new(on_service_discovered));
+        //         let event_loop = browser
+        //             .browse_services()
+        //             .expect(&format!("Could not start Browsing for {:?}", &service_type));
+        //         println!("Entering our event loop, browsing for {:?}", &service_type);
+        //         loop {
+        //             _ = event_loop.poll(Duration::from_millis(500));
+        //         }
+        //     })
+        //     .unwrap();
+        // println!("spawned browser");
     });
 }
 
@@ -157,6 +230,9 @@ fn quit(_: &Quit, cx: &mut AppContext) {
 }
 
 fn new_window(_: &NewWindow, cx: &mut AppContext) {
+    let services = cx.new_model(|_cx| Services::new());
+    let view_services = services.clone();
+    let ssh_services = services.clone();
     cx.open_window(
         WindowOptions {
             titlebar: Some(TitlebarOptions {
@@ -166,11 +242,80 @@ fn new_window(_: &NewWindow, cx: &mut AppContext) {
             ..Default::default()
         },
         |cx| {
-            cx.new_view(|_cx| HelloWorld {
+            cx.new_view(move |_cx| HelloWorld {
                 text: "World".into(),
+                services: view_services,
             })
         },
     );
+    cx.spawn(|mut cx| async move {
+        loop {
+            cx.background_executor().timer(Duration::from_secs(2)).await;
+            _ = cx.update_model(&services, |s, _cx| {
+                s.add("one more");
+            });
+            _ = cx.refresh();
+        }
+    })
+    .detach();
+
+    let (tx, rx) = smol::channel::unbounded();
+    thread::Builder::new()
+        .name("ssh-browse".into())
+        .spawn(move || {
+            extern crate log;
+            use smol::channel::Sender;
+            use std::any::Any;
+            use std::sync::Arc;
+            use zeroconf::{prelude::*, MdnsBrowser, ServiceDiscovery, ServiceType};
+
+            fn on_service_discovered(
+                result: zeroconf::Result<ServiceDiscovery>,
+                context: Option<Arc<dyn Any>>,
+            ) {
+                println!(
+                    "Found some: {:?}",
+                    result.as_ref().expect("Discovery failed instead")
+                );
+                if let Some(tx) = context {
+                    let tx = tx.downcast_ref::<Sender<String>>().unwrap();
+
+                    smol::block_on(tx.send(format!("Found Some {:?}", result.unwrap()))).unwrap();
+                }
+            }
+
+            smol::block_on(tx.send("Started Browsing for _ssh".to_string())).unwrap();
+
+            //                    let services_type = "_services._dns-sd._udp.";
+            // let service_type =
+            // ServiceType::with_sub_types("dns-sd", "udp", ["services"].into()).unwrap();
+            // let service_type = ServiceType::new("services.dns-sd", "udp").unwrap();
+            let service_type = ServiceType::new("ssh", "tcp").unwrap();
+            //                let service_type = ServiceType::services_type();
+
+            let mut browser = MdnsBrowser::new(service_type.clone());
+            browser.set_context(Box::new(tx));
+
+            browser.set_service_discovered_callback(Box::new(on_service_discovered));
+            let event_loop = browser
+                .browse_services()
+                .expect(&format!("Could not start Browsing for {:?}", &service_type));
+            println!("Entering our event loop, browsing for {:?}", &service_type);
+            loop {
+                _ = event_loop.poll(Duration::from_millis(500));
+            }
+        })
+        .unwrap();
+
+    cx.spawn(|mut cx| async move {
+        loop {
+            let s = rx.recv().await.unwrap();
+            println!("Received: {}", s);
+            _ = cx.update_model(&ssh_services, |services, _cx| services.add(&s));
+            _ = cx.refresh();
+        }
+    })
+    .detach();
 }
 
 struct AboutView {

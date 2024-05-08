@@ -15,3 +15,8 @@ repository = "https://github.com/monkeydom/br0wse"
 # while experimental, pin to my own fork
 gpui = { git = "https://github.com/monkeydom/zed", rev = "9ec0927" }
 serde = "*"
+zeroconf = { path = "../zeroconf-rs/zeroconf" }
+log = "*"
+env_logger = "*"
+futures = "*"
+smol = "*"
