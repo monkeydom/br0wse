@@ -341,13 +341,13 @@ fn about(_: &About, cx: &mut AppContext) {
 
     cx.open_window(
         WindowOptions {
-            bounds: Some(Bounds::new(
+            window_bounds: Some(WindowBounds::Windowed(Bounds::new(
                 Point::new(10.into(), 10.into()),
                 Size {
                     width: 300.into(),
                     height: 40.into(),
                 },
-            )),
+            ))),
             window_background: WindowBackgroundAppearance::Blurred,
             ..Default::default()
         },
