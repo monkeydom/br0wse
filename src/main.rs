@@ -1,3 +1,4 @@
+use std::io::ErrorKind;
 use std::thread;
 use std::time::Duration;
 
@@ -177,44 +178,6 @@ fn main() {
 
         cx.activate(true);
         cx.dispatch_action(&NewWindow);
-
-        // let _handle = thread::Builder::new()
-        //     .name("zeroconf-browsing".into())
-        //     .spawn(move || {
-        //         extern crate log;
-        //         use std::any::Any;
-        //         use std::sync::Arc;
-        //         use zeroconf::{prelude::*, MdnsBrowser, ServiceDiscovery, ServiceType};
-
-        //         fn on_service_discovered(
-        //             result: zeroconf::Result<ServiceDiscovery>,
-        //             _context: Option<Arc<dyn Any>>,
-        //         ) {
-        //             println!(
-        //                 "Found some: {:?}",
-        //                 result.expect("Discovery failed instead")
-        //             )
-        //         }
-
-        //         //                    let services_type = "_services._dns-sd._udp.";
-        //         let service_type =
-        //             ServiceType::with_sub_types("dns-sd", "udp", ["services"].into()).unwrap();
-        //         // let service_type = ServiceType::new("services.dns-sd", "udp").unwrap();
-        //         // let service_type = ServiceType::new("ssh", "tcp").unwrap();
-        //         //                let service_type = ServiceType::services_type();
-
-        //         let mut browser = MdnsBrowser::new(service_type.clone());
-        //         browser.set_service_discovered_callback(Box::new(on_service_discovered));
-        //         let event_loop = browser
-        //             .browse_services()
-        //             .expect(&format!("Could not start Browsing for {:?}", &service_type));
-        //         println!("Entering our event loop, browsing for {:?}", &service_type);
-        //         loop {
-        //             _ = event_loop.poll(Duration::from_millis(500));
-        //         }
-        //     })
-        //     .unwrap();
-        // println!("spawned browser");
     });
 }
 
@@ -252,7 +215,7 @@ fn new_window(_: &NewWindow, cx: &mut AppContext) {
         loop {
             cx.background_executor().timer(Duration::from_secs(2)).await;
             _ = cx.update_model(&services, |s, _cx| {
-                s.add("one more");
+                //                s.add("one more");
             });
             _ = cx.refresh();
         }
@@ -264,45 +227,42 @@ fn new_window(_: &NewWindow, cx: &mut AppContext) {
         .name("ssh-browse".into())
         .spawn(move || {
             extern crate log;
+            use astro_dnssd::{BrowseError, ServiceBrowserBuilder, ServiceEventType};
             use smol::channel::Sender;
             use std::any::Any;
             use std::sync::Arc;
-            use zeroconf::{prelude::*, MdnsBrowser, ServiceDiscovery, ServiceType};
 
-            fn on_service_discovered(
-                result: zeroconf::Result<ServiceDiscovery>,
-                context: Option<Arc<dyn Any>>,
-            ) {
-                println!(
-                    "Found some: {:?}",
-                    result.as_ref().expect("Discovery failed instead")
-                );
-                if let Some(tx) = context {
-                    let tx = tx.downcast_ref::<Sender<String>>().unwrap();
-
-                    smol::block_on(tx.send(format!("Found Some {:?}", result.unwrap()))).unwrap();
+            match ServiceBrowserBuilder::new("_ssh._tcp").browse() {
+                Ok(browser) => {
+                    smol::block_on(tx.send("Started Browsing for _ssh".to_string())).unwrap();
+                    loop {
+                        match browser.recv_timeout(Duration::from_millis(1000)) {
+                            Ok(service) => {
+                                if service.event_type == ServiceEventType::Added {
+                                    //info!("Service found: {:?}", service);
+                                    smol::block_on(tx.send(format!("Found Some {:?}", service)))
+                                        .unwrap();
+                                } else {
+                                    smol::block_on(tx.send(format!("    Lost Some {:?}", service)))
+                                        .unwrap();
+                                }
+                            }
+                            Err(BrowseError::IoError(e)) if e.kind() == ErrorKind::TimedOut => {
+                                std::thread::sleep(Duration::from_millis(100));
+                            }
+                            Err(BrowseError::Timeout) => {
+                                std::thread::sleep(Duration::from_millis(100));
+                            }
+                            Err(e) => {
+                                std::thread::sleep(Duration::from_millis(100));
+                            }
+                        }
+                    }
                 }
-            }
-
-            smol::block_on(tx.send("Started Browsing for _ssh".to_string())).unwrap();
-
-            //                    let services_type = "_services._dns-sd._udp.";
-            // let service_type =
-            // ServiceType::with_sub_types("dns-sd", "udp", ["services"].into()).unwrap();
-            // let service_type = ServiceType::new("services.dns-sd", "udp").unwrap();
-            let service_type = ServiceType::new("ssh", "tcp").unwrap();
-            //                let service_type = ServiceType::services_type();
-
-            let mut browser = MdnsBrowser::new(service_type.clone());
-            browser.set_context(Box::new(tx));
-
-            browser.set_service_discovered_callback(Box::new(on_service_discovered));
-            let event_loop = browser
-                .browse_services()
-                .expect(&format!("Could not start Browsing for {:?}", &service_type));
-            println!("Entering our event loop, browsing for {:?}", &service_type);
-            loop {
-                _ = event_loop.poll(Duration::from_millis(500));
+                Err(e) => {
+                    smol::block_on(tx.send("Failed starting to browse for _ssh".to_string()))
+                        .unwrap();
+                }
             }
         })
         .unwrap();
